@@ -1,10 +1,9 @@
 import sys
-from PyQt5.QtWidgets import QWidget, QApplication, QGraphicsScene,QGraphicsPixmapItem
+from PyQt5.QtWidgets import QWidget, QApplication, QGraphicsScene, QGraphicsPixmapItem, QPushButton
 from Ui_interface import Ui_Form
 from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 import cv2
-import face_recognition
 
 class Manitor(QWidget, Ui_Form):
     originFrame = None
@@ -14,9 +13,13 @@ class Manitor(QWidget, Ui_Form):
         self.show()
         
         self.btn_start.clicked.connect(self.start)
-        self.btn_quit.clicked.connect(self.quit) 
-    
-    
+        self.btn_quit.clicked.connect(self.quit)
+        
+        # 添加置顶按钮
+        self.btn_topmost = QPushButton("置顶", self)
+        self.btn_topmost.setGeometry(10, 10, 60, 30)  # 设置按钮位置和大小
+        self.btn_topmost.clicked.connect(self.toggle_topmost)
+
         self.frame_scene = QGraphicsScene()
         self.graphicsView.setScene(self.frame_scene)
         self.thread_dec = Thread_Dec()
@@ -58,21 +61,24 @@ class Manitor(QWidget, Ui_Form):
         if info > 0:
             print('有人员信息')
             self.shake()
-            self.toggle_topmost()
+            # self.toggle_topmost()
         
     
     
     def quit(self):
-        pass
+        """关闭窗口"""
+        self.close()
+
     def shake(self):
-        """快速左右移动窗口3次"""
+        """快速左右移动窗口3次，保持在当前屏幕"""
+        current_geometry = self.geometry()  # 获取窗口的全局位置
         for i in range(0, 2):
             # 向右移动
-            QTimer.singleShot(100 * i, lambda: self.move(self.original_pos.x() + 10, self.original_pos.y()))
+            QTimer.singleShot(100 * i, lambda: self.setGeometry(current_geometry.x() + 10, current_geometry.y(), current_geometry.width(), current_geometry.height()))
             # 向左移动
-            QTimer.singleShot(100 * i + 50, lambda: self.move(self.original_pos.x() - 10, self.original_pos.y()))
+            QTimer.singleShot(100 * i + 50, lambda: self.setGeometry(current_geometry.x() - 10, current_geometry.y(), current_geometry.width(), current_geometry.height()))
         # 恢复原位
-        QTimer.singleShot(350, lambda: self.move(self.original_pos))
+        QTimer.singleShot(350, lambda: self.setGeometry(current_geometry))
         
     
     def toggle_topmost(self):
@@ -121,13 +127,13 @@ class Thread_Dec(QThread):
         while True:
             if self.frame is not None:
                 boxes, weights = self.hog.detectMultiScale(self.frame, winStride=(8, 8), padding = (4, 4), scale = 1.1, hitThreshold=0.5)
-                print('boxes', boxes)
+                # print('boxes', boxes)
                 last_boxes = boxes
                 # 在图像上绘制边界框
                 for (x, y, w, h) in boxes:
                     cv2.rectangle(self.frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
                 self.signal_frame_people.emit(self.frame)
-                print('len(boxes)',len(boxes))
+                # print('len(boxes)',len(boxes))
                 self.signal_frame_peoPle_num.emit(len(boxes))   
         
 
