@@ -91,7 +91,7 @@ class Thread_Camera(QThread):
         super(Thread_Camera, self).__init__()  
         
     def run(self):
-        cap = cv2.VideoCapture("rtsp://admin:hzaub107@192.168.124.8:554/Streaming/Channels/1")
+        cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print('无法打开摄像头')
             return
