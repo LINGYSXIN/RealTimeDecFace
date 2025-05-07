@@ -1,13 +1,13 @@
 import sys
 from PyQt5.QtWidgets import QWidget, QApplication, QGraphicsScene,QGraphicsPixmapItem
 from Ui_interface import Ui_Form
-from PyQt5.QtCore import QThread, pyqtSignal, Qt
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 import cv2
 import face_recognition
 
-
 class Manitor(QWidget, Ui_Form):
+    originFrame = None
     def __init__(self):
         super(Manitor, self).__init__()
         self.setupUi(self)
@@ -19,6 +19,12 @@ class Manitor(QWidget, Ui_Form):
     
         self.frame_scene = QGraphicsScene()
         self.graphicsView.setScene(self.frame_scene)
+        self.thread_dec = Thread_Dec()
+        self.thread_dec.signal_frame_people.connect(self.decBackCall)
+        self.thread_dec.signal_frame_peoPle_num.connect(self.decNum)
+        self.thread_dec.start()
+        self.original_pos = self.pos()  # 保存初始位置
+        self.is_topmost = False  # 初始状态非置顶
         
     def start(self):
         self.thread_camera = Thread_Camera()
@@ -26,8 +32,7 @@ class Manitor(QWidget, Ui_Form):
         self.thread_camera.start()
         
     def frameBackCall(self, frame):
-        # print(frame)
-        # 将OpenCV图像(BGR格式)转换为Qt可显示的格式
+        self.thread_dec.frame = frame 
         height, width, channel = frame.shape
         bytes_per_line = 3 * width
         q_image = QImage(frame.data, width, height, bytes_per_line, QImage.Format_RGB888).rgbSwapped()
@@ -43,9 +48,39 @@ class Manitor(QWidget, Ui_Form):
         # 自动调整视图大小以适应图像
         self.graphicsView.fitInView(pixmap_item, Qt.KeepAspectRatio)
     
+        
+        
+    def decBackCall(self, decFrame):
+         # 将OpenCV图像(BGR格式)转换为Qt可显示的格式
+        pass
+
+    def decNum(self, info):
+        if info > 0:
+            print('有人员信息')
+            self.shake()
+            self.toggle_topmost()
+        
+    
+    
     def quit(self):
         pass
+    def shake(self):
+        """快速左右移动窗口3次"""
+        for i in range(0, 2):
+            # 向右移动
+            QTimer.singleShot(100 * i, lambda: self.move(self.original_pos.x() + 10, self.original_pos.y()))
+            # 向左移动
+            QTimer.singleShot(100 * i + 50, lambda: self.move(self.original_pos.x() - 10, self.original_pos.y()))
+        # 恢复原位
+        QTimer.singleShot(350, lambda: self.move(self.original_pos))
         
+    
+    def toggle_topmost(self):
+        """切换置顶状态"""
+        self.is_topmost = not self.is_topmost
+        # 关键代码：设置窗口置顶标志
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, self.is_topmost)
+        self.show()  # 必须重新调用show()生效
         
 class Thread_Camera(QThread):
     
@@ -53,12 +88,8 @@ class Thread_Camera(QThread):
     frame = None
     flag = 0
     def __init__(self):
-        super(Thread_Camera, self).__init__()
-        self.thread_dec = Thread_Dec()
-        self.thread_dec.signal_face.connect(self.backCall)
-        self.thread_dec.start()
-
-  
+        super(Thread_Camera, self).__init__()  
+        
     def run(self):
         cap = cv2.VideoCapture("rtsp://admin:hzaub107@192.168.124.8:554/Streaming/Channels/1")
         if not cap.isOpened():
@@ -69,33 +100,36 @@ class Thread_Camera(QThread):
             if not ret:
                 print('无法获取视频帧')
                 break
-            self.thread_dec.frame = frame
             self.signal_frame.emit(frame)
-    
-        
         cap.release()
     
-    def backCall(self, info):
-        if info == 1:
-            print('有人员信息')
-            cv2.imwrite('{}.jpg'.format(self.flag), self.thread_dec.frame)
-            self.flag += 1
     
 class Thread_Dec(QThread):
-    signal_face = pyqtSignal(int)
-    frame: list | None = None
+    
+    signal_frame_people = pyqtSignal(object)
+    signal_frame_peoPle_num = pyqtSignal(int)
+    frame = None
+    
     def __init__(self):
         super(Thread_Dec, self).__init__()
-
+        self.hog = cv2.HOGDescriptor()
+        self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+    
+        
     def run(self):
+        last_boxes = []
         while True:
-            if self.frame is None:
-                continue
-            else:
-                result = face_recognition.face_locations(self.frame)
-                if result != []:
-                    self.signal_face.emit(1)
-                
+            if self.frame is not None:
+                boxes, weights = self.hog.detectMultiScale(self.frame, winStride=(8, 8), padding = (4, 4), scale = 1.1, hitThreshold=0.5)
+                print('boxes', boxes)
+                last_boxes = boxes
+                # 在图像上绘制边界框
+                for (x, y, w, h) in boxes:
+                    cv2.rectangle(self.frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+                self.signal_frame_people.emit(self.frame)
+                print('len(boxes)',len(boxes))
+                self.signal_frame_peoPle_num.emit(len(boxes))   
+        
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
